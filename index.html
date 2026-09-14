@@ -1,10 +1,104 @@
 <!DOCTYPE html>
-<html>
+<html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>째맴!</title>
+    <title>웹 게임 P2P 테스트</title>
+    <!-- PeerJS 라이브러리 불러오기 -->
+    <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
+    <style>
+        body { font-family: sans-serif; padding: 20px; }
+        box { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; }
+    </style>
 </head>
-<body style="background-color: #2f3136; color: white; text-align: center; padding-top: 50px;">
-    <h1>여기가 디스코드 안에서 보이는 백지 웹사이트</h1>
+<body>
+
+    <h1>웹 P2P 멀티플레이 테스트</h1>
+    
+    <!-- 방장 영역 -->
+    <div style="background: #eef; padding: 15px; margin-bottom: 10px;">
+        <h3>1. 방 만들기 (방장용)</h3>
+        <button onclick="createRoom()">방 생성하기</button>
+        <p>내 방 코드: <span id="my-id" style="font-weight: bold; color: blue;">-</span></p>
+    </div>
+
+    <!-- 참가자 영역 -->
+    <div style="background: #efe; padding: 15px; margin-bottom: 10px;">
+        <h3>2. 방 들어가기 (참가자용)</h3>
+        <input type="text" id="target-id" placeholder="친구의 방 코드를 입력">
+        <button onclick="joinRoom()">입장하기</button>
+    </div>
+
+    <!-- 채팅 및 데이터 전송 영역 -->
+    <div style="background: #fee; padding: 15px;">
+        <h3>3. 데이터 주고받기</h3>
+        <input type="text" id="message" placeholder="보낼 메시지">
+        <button onclick="sendMessage()">보내기</button>
+        <ul id="log"></ul>
+    </div>
+
+    <script>
+        let peer;
+        let connection;
+
+        // 1. 방 생성
+        function createRoom() {
+            peer = new Peer(); // 자동으로 고유 ID 생성
+
+            peer.on('open', (id) => {
+                document.getElementById('my-id').innerText = id;
+                logMessage('방이 생성되었습니다. 이 코드를 친구에게 알려주세요.');
+            });
+
+            // 친구가 접속해올 때
+            peer.on('connection', (conn) => {
+                connection = conn;
+                logMessage('친구가 접속했습니다!');
+                setupConnection();
+            });
+        }
+
+        // 2. 방 입장
+        function joinRoom() {
+            const targetId = document.getElementById('target-id').value;
+            peer = new Peer();
+
+            peer.on('open', () => {
+                logMessage('서버 연결 성공, 친구에게 접속 시도 중...');
+                connection = peer.connect(targetId);
+                
+                connection.on('open', () => {
+                    logMessage('친구의 방에 성공적으로 입장했습니다!');
+                    setupConnection();
+                });
+            });
+        }
+
+        // 3. 데이터 수신 설정
+        function setupConnection() {
+            connection.on('data', (data) => {
+                logMessage('받은 메시지: ' + data);
+            });
+        }
+
+        // 4. 메시지 전송
+        function sendMessage() {
+            const msg = document.getElementById('message').value;
+            if (connection && connection.open) {
+                connection.send(msg);
+                logMessage('나: ' + msg);
+                document.getElementById('message').value = '';
+            } else {
+                alert('연결된 사람이 없습니다!');
+            }
+        }
+
+        function logMessage(text) {
+            const ul = document.getElementById('log');
+            const li = document.createElement('li');
+            li.innerText = text;
+            ul.appendChild(li);
+        }
+    </script>
+
 </body>
 </html>
