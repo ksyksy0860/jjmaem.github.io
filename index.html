@@ -94,11 +94,31 @@
         let peer, conn;
         let isHost = false;
         
-        // 내 캐릭터 번호 기본값 0 (전사)
         let myCharacterId = 0;
-        let myData = { characterId: 0, name: '전사', hp: 120, maxHp: 120, atk: 25, healPower: 20, defing: false };
         
-        let enemyData = { characterId: 0, name: '', hp: 100, maxHp: 100, atk: 25, healPower: 20, defing: false };
+        // 💡 플레이어마다 자유롭게 쓸 수 있는 변수 풀(pool 배열) 추가
+        let myData = { 
+            characterId: 0, 
+            name: '전사', 
+            hp: 120, 
+            maxHp: 120, 
+            atk: 25, 
+            healPower: 20, 
+            defing: false,
+            pool: [] // 여기에 유동적으로 변수를 추가/수정하여 사용하세요
+        };
+        
+        let enemyData = { 
+            characterId: 0, 
+            name: '', 
+            hp: 100, 
+            maxHp: 100, 
+            atk: 25, 
+            healPower: 20, 
+            defing: false,
+            pool: [] 
+        };
+
         let myTurn = false;
         let enemyReady = false;
         let myReady = false;
@@ -108,7 +128,7 @@
             document.getElementById(screenId).classList.add('active');
         }
 
-        // 캐릭터 번호로 스탯 세팅
+        // 캐릭터 번호로 스탯 및 풀 세팅
         function selectCharacter(id) {
             myCharacterId = id;
             const info = characterDataList[id];
@@ -119,6 +139,15 @@
             myData.maxHp = info.hp;
             myData.atk = info.atk;
             myData.healPower = info.healPower;
+            
+            // 예시: 캐릭터별 초기 풀(pool) 설정 (자유롭게 커스텀 가능)
+            if (id === 0) {
+                myData.pool = ['전사의투지', 100]; // 전사 전용 풀 데이터 예시
+            } else if (id === 1) {
+                myData.pool = ['마나실드', 50];   // 마법사 전용 풀 데이터 예시
+            } else if (id === 2) {
+                myData.pool = ['신성가호', 80];   // 힐러 전용 풀 데이터 예시
+            }
             
             document.getElementById('my-choice-num').innerText = id;
             document.getElementById('my-choice-name').innerText = info.name;
@@ -173,7 +202,7 @@
 
         function handlePacket(packet) {
             if (packet.type === 'READY') {
-                enemyData = packet.data;
+                enemyData = packet.data; // 상대방의 풀(pool)을 포함한 전체 데이터가 동기화됨
                 enemyReady = true;
                 
                 if (!isHost && !myReady) {
@@ -189,10 +218,9 @@
         function checkGameStart() {
             if (myReady && enemyReady) {
                 showScreen('game-screen');
-                document.getElementById('p1-name').innerText = `${myData.name} (내 캐릭터 번호: ${myData.characterId})`;
-                document.getElementById('p2-name').innerText = `${enemyData.name} (상대 캐릭터 번호: ${enemyData.characterId})`;
+                document.getElementById('p1-name').innerText = `${myData.name} (내 번호: ${myData.characterId})`;
+                document.getElementById('p2-name').innerText = `${enemyData.name} (상대 번호: ${enemyData.characterId})`;
                 
-                // 스탯 텍스트 초기 세팅
                 document.getElementById('p1-atk').innerText = myData.atk;
                 document.getElementById('p1-heal').innerText = myData.healPower;
                 document.getElementById('p2-atk').innerText = enemyData.atk;
@@ -215,7 +243,9 @@
             if (!myTurn) return;
 
             executeAction(true, actionType);
-            conn.send({ type: 'ACTION', action: actionType });
+            
+            // 행동할 때 내 풀(pool) 상태도 함께 상대에게 전달됨
+            conn.send({ type: 'ACTION', action: actionType, pool: myData.pool });
 
             myTurn = false;
             updateTurnUI();
