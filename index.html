@@ -2,103 +2,270 @@
 <html lang="ko">
 <head>
     <meta charset="UTF-8">
-    <title>웹 게임 P2P 테스트</title>
-    <!-- PeerJS 라이브러리 불러오기 -->
+    <title>웹 턴제 멀티 게임</title>
     <script src="https://unpkg.com/peerjs@1.5.4/dist/peerjs.min.js"></script>
     <style>
-        body { font-family: sans-serif; padding: 20px; }
-        box { border: 1px solid #ccc; padding: 15px; margin-bottom: 10px; }
+        body { font-family: sans-serif; text-align: center; background: #222; color: #fff; padding: 20px; }
+        .screen { display: none; }
+        .active { display: block; }
+        .box { background: #333; padding: 20px; border-radius: 10px; display: inline-block; margin-top: 20px; width: 350px; }
+        button { padding: 10px 20px; margin: 5px; cursor: pointer; font-size: 16px; }
+        input { padding: 10px; font-size: 16px; width: 200px; }
+        .char-btn { background: #444; color: white; border: 2px solid #555; border-radius: 5px; }
+        .char-btn.selected { border-color: #ffcc00; background: #665500; }
+        .status-box { display: flex; justify-content: space-around; margin: 20px 0; }
+        .player-panel { background: #444; padding: 15px; border-radius: 8px; width: 40%; }
+        #log { background: #111; height: 120px; overflow-y: auto; text-align: left; padding: 10px; font-family: monospace; border-radius: 5px; font-size: 14px; }
     </style>
 </head>
 <body>
 
-    <h1>웹 P2P 멀티플레이 테스트</h1>
-    
-    <!-- 방장 영역 -->
-    <div style="background: #eef; padding: 15px; margin-bottom: 10px;">
-        <h3>1. 방 만들기 (방장용)</h3>
-        <button onclick="createRoom()">방 생성하기</button>
-        <p>내 방 코드: <span id="my-id" style="font-weight: bold; color: blue;">-</span></p>
+    <h1>🎮 웹 턴제 대전 게임</h1>
+
+    <!-- 1. 로비 화면 -->
+    <div id="lobby-screen" class="screen active">
+        <div class="box">
+            <h3>방 만들기 (방장)</h3>
+            <button onclick="createRoom()">방 생성</button>
+            <p>내 방 코드: <span id="my-id" style="color: #00ffcc;">-</span></p>
+        </div>
+        <br>
+        <div class="box">
+            <h3>방 들어가기 (참가자)</h3>
+            <input type="text" id="target-id" placeholder="친구 방 코드 입력">
+            <button onclick="joinRoom()">입장하기</button>
+        </div>
     </div>
 
-    <!-- 참가자 영역 -->
-    <div style="background: #efe; padding: 15px; margin-bottom: 10px;">
-        <h3>2. 방 들어가기 (참가자용)</h3>
-        <input type="text" id="target-id" placeholder="친구의 방 코드를 입력">
-        <button onclick="joinRoom()">입장하기</button>
+    <!-- 2. 캐릭터 선택 화면 -->
+    <div id="select-screen" class="screen">
+        <h2>캐릭터를 선택하세요</h2>
+        <button class="char-btn" onclick="selectCharacter('전사', 120, 25)">전사 (체력 높음, 공격력 중)</button>
+        <button class="char-btn" onclick="selectCharacter('마법사', 80, 40)">마법사 (체력 낮음, 공격력 높음)</button>
+        <button class="char-btn" onclick="selectCharacter('힐러', 100, 15)">힐러 (안정적인 힐러형)</button>
+        <br><br>
+        <p>선택한 캐릭터: <span id="my-choice" style="color: yellow; font-weight: bold;">없음</span></p>
+        <button id="start-btn" onclick="readyToGame()" disabled style="background: gray;">게임 시작 준비</button>
+        <p id="wait-msg" style="color: #aaa;"></p>
     </div>
 
-    <!-- 채팅 및 데이터 전송 영역 -->
-    <div style="background: #fee; padding: 15px;">
-        <h3>3. 데이터 주고받기</h3>
-        <input type="text" id="message" placeholder="보낼 메시지">
-        <button onclick="sendMessage()">보내기</button>
-        <ul id="log"></ul>
+    <!-- 3. 전투 화면 -->
+    <div id="game-screen" class="screen">
+        <div class="status-box">
+            <div class="player-panel">
+                <h3 id="p1-name">내 정보</h3>
+                <p>HP: <span id="p1-hp">100</span></p>
+            </div>
+            <div class="player-panel">
+                <h3 id="p2-name">상대 정보</h3>
+                <p>HP: <span id="p2-hp">100</span></p>
+            </div>
+        </div>
+
+        <h3 id="turn-indicator" style="color: #ffcc00;">내 턴입니다!</h3>
+        
+        <div id="action-buttons">
+            <button onclick="sendAction('attack')" style="background: #d9534f; color: white;">⚔️ 공격</button>
+            <button onclick="sendAction('defend')" style="background: #f0ad4e; color: white;">🛡️ 수비</button>
+            <button onclick="sendAction('heal')" style="background: #5cb85c; color: white;">✨ 회복</button>
+        </div>
+
+        <div style="width: 700px; margin: 20px auto;">
+            <h4>전투 로그</h4>
+            <div id="log"></div>
+        </div>
     </div>
 
     <script>
-        let peer;
-        let connection;
+        let peer, conn;
+        let isHost = false;
+        let myData = { name: '', hp: 100, maxHp: 100, atk: 25, defing: false };
+        let enemyData = { name: '', hp: 100, maxHp: 100, atk: 25, defing: false };
+        let myTurn = false;
 
-        // 1. 방 생성
+        function showScreen(screenId) {
+            document.querySelectorAll('.screen').forEach(s => s.classList.remove('active'));
+            document.getElementById(screenId).classList.add('active');
+        }
+
+        // 1. 방 만들기
         function createRoom() {
-            peer = new Peer(); // 자동으로 고유 ID 생성
-
+            isHost = true;
+            peer = new Peer();
             peer.on('open', (id) => {
                 document.getElementById('my-id').innerText = id;
-                logMessage('방이 생성되었습니다. 이 코드를 친구에게 알려주세요.');
             });
-
-            // 친구가 접속해올 때
-            peer.on('connection', (conn) => {
-                connection = conn;
-                logMessage('친구가 접속했습니다!');
+            peer.on('connection', (c) => {
+                conn = c;
                 setupConnection();
+                showScreen('select-screen');
+                addLog('친구가 입장했습니다! 캐릭터를 골라주세요.');
             });
         }
 
-        // 2. 방 입장
+        // 2. 방 들어가기
         function joinRoom() {
+            isHost = false;
             const targetId = document.getElementById('target-id').value;
             peer = new Peer();
-
             peer.on('open', () => {
-                logMessage('서버 연결 성공, 친구에게 접속 시도 중...');
-                connection = peer.connect(targetId);
-                
-                connection.on('open', () => {
-                    logMessage('친구의 방에 성공적으로 입장했습니다!');
-                    setupConnection();
+                conn = peer.connect(targetId);
+                setupConnection();
+                conn.on('open', () => {
+                    showScreen('select-screen');
+                    addLog('방에 입장했습니다! 캐릭터를 골라주세요.');
                 });
             });
         }
 
-        // 3. 데이터 수신 설정
         function setupConnection() {
-            connection.on('data', (data) => {
-                logMessage('받은 메시지: ' + data);
+            conn.on('data', (packet) => {
+                handlePacket(packet);
             });
         }
 
-        // 4. 메시지 전송
-        function sendMessage() {
-            const msg = document.getElementById('message').value;
-            if (connection && connection.open) {
-                connection.send(msg);
-                logMessage('나: ' + msg);
-                document.getElementById('message').value = '';
-            } else {
-                alert('연결된 사람이 없습니다!');
+        // 3. 캐릭터 선택
+        function selectCharacter(name, hp, atk) {
+            myData.name = name;
+            myData.hp = hp;
+            myData.maxHp = hp;
+            myData.atk = atk;
+            
+            document.getElementById('my-choice').innerText = `${name} (체력:${hp}, 공격력:${atk})`;
+            document.getElementById('start-btn').disabled = false;
+            document.getElementById('start-btn').style.background = '#28a745';
+            
+            document.querySelectorAll('.char-btn').forEach(b => b.classList.remove('selected'));
+            event.target.classList.add('selected');
+        }
+
+        function readyToGame() {
+            document.getElementById('start-btn').disabled = true;
+            document.getElementById('wait-msg').innerText = '상대의 준비를 기다리는 중...';
+            
+            conn.send({ type: 'READY', data: myData });
+            checkGameStart();
+        }
+
+        let enemyReady = false;
+        let myReady = false;
+
+        function handlePacket(packet) {
+            if (packet.type === 'READY') {
+                enemyData = packet.data;
+                enemyReady = true;
+                document.getElementById('wait-msg').innerText = `상대방(${enemyData.name}) 준비 완료!`;
+                checkGameStart();
+            } else if (packet.type === 'ACTION') {
+                processEnemyAction(packet.action);
             }
         }
 
-        function logMessage(text) {
-            const ul = document.getElementById('log');
-            const li = document.createElement('li');
-            li.innerText = text;
-            ul.appendChild(li);
+        function checkGameStart() {
+            myReady = document.getElementById('start-btn').disabled;
+            if (myReady && enemyReady) {
+                showScreen('game-screen');
+                document.getElementById('p1-name').innerText = `${myData.name} (나)`;
+                document.getElementById('p2-name').innerText = `${enemyData.name} (상대)`;
+                updateUI();
+
+                // 방장이 선공
+                if (isHost) {
+                    myTurn = true;
+                    addLog('게임 시작! 당신의 선공입니다.');
+                } else {
+                    myTurn = false;
+                    addLog('게임 시작! 상대방의 턴입니다.');
+                }
+                updateTurnUI();
+            }
+        }
+
+        // 4. 턴 액션 처리
+        function sendAction(actionType) {
+            if (!myTurn) return;
+
+            // 내 행동 실행
+            executeAction(true, actionType);
+            
+            // 상대에게 데이터 전송
+            conn.send({ type: 'ACTION', action: actionType });
+
+            myTurn = false;
+            updateTurnUI();
+        }
+
+        function processEnemyAction(actionType) {
+            executeAction(false, actionType);
+            myTurn = true;
+            updateTurnUI();
+            addLog('내 턴이 돌아왔습니다!');
+        }
+
+        function executeAction(isMe, action) {
+            let actor = isMe ? myData : enemyData;
+            let target = isMe ? enemyData : myData;
+            let actorName = actor.name;
+
+            // 수비 해제
+            actor.defing = false;
+
+            if (action === 'attack') {
+                let damage = actor.atk;
+                if (target.defing) {
+                    damage = Math.floor(damage / 2);
+                    addLog(`${actorName}의 공격! 그러나 상대가 수비 중이라 피해량이 반감됩니다!`);
+                } else {
+                    addLog(`${actorName}의 공격! 상대에게 ${damage}의 피해를 줍니다.`);
+                }
+                target.hp = Math.max(0, target.hp - damage);
+            } else if (action === 'defend') {
+                actor.defing = true;
+                addLog(`${actorName이(가)} 방어 태세를 취합니다! (다음 받는 피해 절반 감소)`);
+            } else if (action === 'heal') {
+                let healAmount = 20;
+                actor.hp = Math.min(actor.maxHp, actor.hp + healAmount);
+                addLog(`${actorName}이(가) 체력을 ${healAmount} 회복했습니다.`);
+            }
+
+            updateUI();
+            checkGameOver();
+        }
+
+        function updateUI() {
+            document.getElementById('p1-hp').innerText = `${myData.hp} / ${myData.maxHp}`;
+            document.getElementById('p2-hp').innerText = `${enemyData.hp} / ${enemyData.maxHp}`;
+        }
+
+        function updateTurnUI() {
+            const indicator = document.getElementById('turn-indicator');
+            const buttons = document.getElementById('action-buttons');
+            if (myTurn) {
+                indicator.innerText = "⚡ 내 턴입니다! 행동을 선택하세요.";
+                indicator.style.color = "#00ffcc";
+                buttons.style.display = "block";
+            } else {
+                indicator.innerText = "⏳ 상대방의 턴입니다... 기다려주세요.";
+                indicator.style.color = "#ff4444";
+                buttons.style.display = "none";
+            }
+        }
+
+        function checkGameOver() {
+            if (myData.hp <= 0) {
+                alert('패배했습니다...');
+                location.reload();
+            } else if (enemyData.hp <= 0) {
+                alert('승리했습니다!');
+                location.reload();
+            }
+        }
+
+        function addLog(text) {
+            const logBox = document.getElementById('log');
+            logBox.innerHTML += `<div>> ${text}</div>`;
+            logBox.scrollTop = logBox.scrollHeight;
         }
     </script>
-
 </body>
 </html>
